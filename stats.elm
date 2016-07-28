@@ -5,6 +5,7 @@ import Html.Events exposing (..)
 import Json.Decode exposing (..)
 import Json.Decode.Pipeline exposing (decode, required)
 import Http
+import Chart exposing (..)
 
 
 main = Html.beginnerProgram
@@ -105,11 +106,19 @@ view model =
     , button [onClick Display] [ text "Show top 10" ]
     , div []
         [ node "style" [ type' "text/css" ] [text styles]
-        , barWithTable
+        , bars (List.map .contributions model.stats) (List.map .country model.stats)
         ]
     , table [] (matrix (newTable (sortContrib model) ))
  -- table [] ((th [] (oneRow ["Country", "Contributions"])) :: (matrix (newTable (sortContrib model) )))
     ]
+
+bars : List Int -> List String -> Html Msg
+bars vals labels =
+  hBar (List.map toFloat vals) labels
+    |> Chart.title "Contributions per country (in percent)"
+    |> Chart.toHtml
+
+{-
 barWithTable : Html Msg
 barWithTable = 
     dl [] 
@@ -118,7 +127,7 @@ barWithTable =
             [ span [class "text"] [text "IE 11: 11.33%"]]
         , dd [class "percentage percentage-49"] 
             [ span [class "text"] [text "Chrome: 49.77%"]]
-        , dd [class ["percentage" => "percentage-16"] ] 
+        , dd [class "percentage percentage-16" ] 
             [ span [class "text"] [text "Firefox: 16.09%"]]
         , dd [class "percentage percentage-5"] 
             [ span [class "text"] [text "Safari: 5.41%"]]
@@ -127,7 +136,7 @@ barWithTable =
         , dd [class "percentage percentage-2"] 
             [ span [class "text"] [text "Android 4.4: 2%"]]
         ]
-        
+-}       
 {-
 HTML for bars:
 <dl>
