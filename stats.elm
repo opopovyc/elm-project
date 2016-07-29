@@ -6,30 +6,42 @@ import Json.Decode exposing (..)
 import Json.Decode.Pipeline exposing (decode, required)
 import Http
 import Chart exposing (..)
+import Task
+--?
 
 
-main = Html.beginnerProgram
-        { model = initialModel
-        , view = view
+main = Html.program
+        { init = init --model = initialModel
+        , subscriptions = subscriptions
         , update = update
+        , view = view
         }
 
 type alias Line = 
     { country : String
+    --should contributions be modelled as Int?
     , contributions : Int
     }
 
 type alias Model = 
+    --can add more statistics later with the record form
     { stats : List Line
     }
-initialModel : Model
-initialModel = 
-    { stats = 
-        [ { country = ""
-          , contributions = 0
-          }
-        ]
-    }
+
+emptyModel: Model
+emptyModel = 
+  { stats = 
+      [ { country = ""
+        , contributions = 0
+        }
+      ]
+  }
+
+init : ( Model, Cmd Msg )
+init =
+  ( sortContrib (result emptyModel)
+  , Cmd.none
+  )
 
 {-
 decodeModel : Json.Decode.Value -> Result String Model
@@ -54,6 +66,11 @@ decodeModel : String -> Result String Model
 decodeModel modelJson =
     Json.Decode.decodeString modelDecoder modelJson
 
+--use of the Json decoder on Json value (newString) 
+result : Model -> Model
+result model = 
+    Result.withDefault model (decodeModel newString)
+
 {-can't count members from this input?-}
 countCountries : Model -> Int
 countCountries model =
@@ -63,25 +80,36 @@ countContributions : Model -> Int
 countContributions model = 
     List.map .contributions model.stats |> List.sum
 
+getUrl : Cmd Msg
+getUrl =
+  let
+    url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json" 
+  in
+    Task.perform FetchFail FetchPass (Http.get modelDecoder url)
+
 type Msg
     = Display
-    | Restart
-    | Expand
+    | FetchFail Http.Error
+    | FetchPass Model
 
-result : Model -> Model
-result model = 
-    Result.withDefault model (decodeModel newString)
-
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Display ->
-            --here we change the model and we don't want that
-            { model | stats = List.take 10 (sortContrib (result model)).stats }
-        Restart ->
-            initialModel
-        Expand ->
-            result model
+          ( model
+          , getUrl
+          )
+        
+        FetchPass response ->
+          ( response
+          , Cmd.none
+          )
+        
+        FetchFail err ->
+          ( model
+          , Cmd.none
+          )
+          --List.take 10 (sortContrib (result model)).stats
 
 {-
 table : List Attribute -> List Html -> Html
@@ -93,8 +121,7 @@ td : List Attribute -> List Html -> Html
 view : Model -> Html Msg
 view model = 
     div []
-    [ button [onClick Display] [text "display statistics"]
-    , h2 [] [text "Summary" ]
+    [ h2 [] [text "Summary" ]
 --    , table [] [ tr [] (oneRow ["Members", "?"])
 --    , tr [] (oneRow ["Countries and territories", (toString (countCountries model))])
 --    , tr [] (oneRow ["Contributions", (toString (countContributions model))])
@@ -102,87 +129,19 @@ view model =
     , table [] (matrix [ ["Members", "?"], ["Countries and territories", (toString (countCountries model))]
     ,["Contributions", (toString (countContributions model))] ])
     , h2 [] [text "By country"]
-    , button [onClick Expand] [ text "Show all" ]
-    , button [onClick Display] [ text "Show top 10" ]
-    , div []
-        [ node "style" [ type' "text/css" ] [text styles]
-        , bars (List.map .contributions model.stats) (List.map .country model.stats)
-        ]
+    , button [onClick Display] [text "Get from Url"]
+    , bars (List.map .contributions model.stats) (List.map .country model.stats)
     , table [] (matrix (newTable (sortContrib model) ))
  -- table [] ((th [] (oneRow ["Country", "Contributions"])) :: (matrix (newTable (sortContrib model) )))
     ]
 
 bars : List Int -> List String -> Html Msg
 bars vals labels =
-  hBar (List.map toFloat vals) labels
+  pie (List.map toFloat vals) labels
     |> Chart.title "Contributions per country (in percent)"
     |> Chart.toHtml
 
-{-
-barWithTable : Html Msg
-barWithTable = 
-    dl [] 
-        [ dt [] [ text "Contributions per country (in percent)"]
-        , dd [class "percentage percentage-11"] 
-            [ span [class "text"] [text "IE 11: 11.33%"]]
-        , dd [class "percentage percentage-49"] 
-            [ span [class "text"] [text "Chrome: 49.77%"]]
-        , dd [class "percentage percentage-16" ] 
-            [ span [class "text"] [text "Firefox: 16.09%"]]
-        , dd [class "percentage percentage-5"] 
-            [ span [class "text"] [text "Safari: 5.41%"]]
-        , dd [class "percentage percentage-2"] 
-            [ span [class "text"] [text "Opera: 1.62%"]]
-        , dd [class "percentage percentage-2"] 
-            [ span [class "text"] [text "Android 4.4: 2%"]]
-        ]
--}       
-{-
-HTML for bars:
-<dl>
-  <dt>
-    Contributions per country (in percent)
-  </dt>
-  <dd class="percentage percentage-11"><span class="text">IE 11: 11.33%</span></dd>
-  <dd class="percentage percentage-49"><span class="text">Chrome: 49.77%</span></dd>
-  <dd class="percentage percentage-16"><span class="text">Firefox: 16.09%</span></dd>
-  <dd class="percentage percentage-5"><span class="text">Safari: 5.41%</span></dd>
-  <dd class="percentage percentage-2"><span class="text">Opera: 1.62%</span></dd>
-  <dd class="percentage percentage-2"><span class="text">Android 4.4: 2%</span></dd>
-</dl>
-
-dl [] 
-            [ dt [] [ text "Contributions per country (in percent)"]
-            , dd [class "percentage percentage-11"] 
-                [ span [class "text"] [text "IE 11: 11.33%"]]
-            , dd [class "percentage percentage-49"] 
-                [ span [class "text"] [text "Chrome: 49.77%"]]
-            , dd [class "percentage percentage-16"] 
-                [ span [class "text"] [text "Firefox: 16.09%"]]
-            , dd [class "percentage percentage-5"] 
-                [ span [class "text"] [text "Safari: 5.41%"]]
-            , dd [class "percentage percentage-2"] 
-                [ span [class "text"] [text "Opera: 1.62%"]]
-            , dd [class "percentage percentage-2"] 
-                [ span [class "text"] [text "Android 4.4: 2%"]]
-            ]
--}
-
---barView : 
-
-{-sortContrib : Model -> Model
-sortContrib model =
-    let
-        flippedComparison a b =
-            case compare a b of
-                LT -> GT
-                EQ -> EQ
-                GT -> LT
-    in
-        List.sortWith flippedComparison (List.map .contributions model.stats) 
--}
-
---sort model by contributions (potentially bz a given attributed)
+--sort model by contributions (potentially by a given attributed)
 sortContrib : Model -> Model
 sortContrib model =
     { model | stats = List.reverse (List.sortBy .contributions model.stats) }
@@ -206,7 +165,9 @@ matrix values =
 --countries : Model -> List String
 --countries {stats} = List.map .country stats
 
-
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.none
     
 name : String
 name = """
