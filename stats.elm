@@ -2,11 +2,12 @@ import Html exposing (..)
 import Html.App as Html
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Json.Decode exposing (..)
+import Json.Decode as Json exposing ((:=))
 import Json.Decode.Pipeline exposing (decode, required)
 import Http
 import Chart exposing (..)
-import Task
+import Task exposing (Task)
+
 --?
 
 
@@ -39,7 +40,8 @@ emptyModel =
 
 init : ( Model, Cmd Msg )
 init =
-  ( sortContrib (result emptyModel)
+  ( --sortContrib (result emptyModel)
+  emptyModel
   , Cmd.none
   )
 
@@ -49,22 +51,22 @@ decodeModel modelJson =
     Json.Decode.decodeValue modelDecoder modelJson
 -}
 
-lineDecoder : Json.Decode.Decoder Line
+lineDecoder : Json.Decoder Line
 lineDecoder = 
     Json.Decode.Pipeline.decode Line
-        |> Json.Decode.Pipeline.required "country" Json.Decode.string
-        |> Json.Decode.Pipeline.required "contributions" Json.Decode.int
+        |> Json.Decode.Pipeline.required "country" Json.string
+        |> Json.Decode.Pipeline.required "contributions" Json.int
 
-modelDecoder : Json.Decode.Decoder Model
+modelDecoder : Json.Decoder Model
 modelDecoder = 
     Json.Decode.Pipeline.decode Model
-        |> Json.Decode.Pipeline.required "stats" (Json.Decode.list lineDecoder)
+        |> Json.Decode.Pipeline.required "stats" (Json.list lineDecoder)
 
 {- String for now, normally some other type of Json values 
 Json.Decode.decodeString modelDecoder-}
 decodeModel : String -> Result String Model
 decodeModel modelJson =
-    Json.Decode.decodeString modelDecoder modelJson
+    Json.decodeString modelDecoder modelJson
 
 --use of the Json decoder on Json value (newString) 
 result : Model -> Model
@@ -84,8 +86,30 @@ getUrl : Cmd Msg
 getUrl =
   let
     url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json" 
+    request = 
+      { verb = "GET"
+      , headers = 
+        [ ("Origin", "http://localhost:8000")
+        , ("Access-Control-Request-Headers", "X-Custom-Header")
+        ]
+      , url = url
+      , body = Http.empty
+    }
   in
-    Task.perform FetchFail FetchPass (Http.get modelDecoder url)
+    --Task.perform FetchFail FetchPass (Http.get Json.string url)
+    Task.perform FetchFail FetchPass (Http.fromJson modelDecoder (Http.send Http.defaultSettings request))
+
+decodeUrl =
+    Json.at [ "stats" ] decodeList
+
+
+decodeList =
+    Json.list decodeLine
+
+decodeLine =
+    Json.object2 Line
+        ("country" := Json.string)
+        ("contributions" := Json.int)
 
 type Msg
     = Display
