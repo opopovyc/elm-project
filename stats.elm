@@ -7,6 +7,7 @@ import Json.Decode.Pipeline exposing (decode, required)
 import Http
 import Chart exposing (..)
 import Task exposing (Task)
+import List exposing (..)
 
 --?
 
@@ -86,18 +87,9 @@ getUrl : Cmd Msg
 getUrl =
   let
     url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json" 
-    request = 
-      { verb = "GET"
-      , headers = 
-        [ ("Origin", "http://localhost:8000")
-        , ("Access-Control-Request-Headers", "X-Custom-Header")
-        ]
-      , url = url
-      , body = Http.empty
-    }
   in
-    --Task.perform FetchFail FetchPass (Http.get Json.string url)
-    Task.perform FetchFail FetchPass (Http.fromJson modelDecoder (Http.send Http.defaultSettings request))
+    Task.perform FetchFail FetchPass (Http.get modelDecoder url)
+    --Task.perform FetchFail FetchPass (Http.fromJson modelDecoder (Http.send Http.defaultSettings request))
 
 decodeUrl =
     Json.at [ "stats" ] decodeList
@@ -144,6 +136,9 @@ td : List Attribute -> List Html -> Html
 -}
 view : Model -> Html Msg
 view model = 
+  let
+    sorted = sortContrib model
+  in
     div []
     [ h2 [] [text "Summary" ]
 --    , table [] [ tr [] (oneRow ["Members", "?"])
@@ -154,8 +149,12 @@ view model =
     ,["Contributions", (toString (countContributions model))] ])
     , h2 [] [text "By country"]
     , button [onClick Display] [text "Get from Url"]
-    , bars (List.map .contributions model.stats) (List.map .country model.stats)
-    , table [] (matrix (newTable (sortContrib model) ))
+    , div []
+      [ node "style" [ type' "text/css" ] [text styles]
+      , moreBars sorted (List.map .contributions sorted.stats) (List.map .country sorted.stats)
+      ]
+    , bars (List.map .contributions sorted.stats) (List.map .country sorted.stats)
+    , table [] (matrix (newTable sorted))
  -- table [] ((th [] (oneRow ["Country", "Contributions"])) :: (matrix (newTable (sortContrib model) )))
     ]
 
@@ -164,6 +163,46 @@ bars vals labels =
   pie (List.map toFloat vals) labels
     |> Chart.title "Contributions per country (in percent)"
     |> Chart.toHtml
+
+
+moreBars : Model -> List Int -> List String -> Html Msg
+moreBars model vals labels =
+  let
+    pairs : List a -> List b -> List (a,b)
+    pairs lefts rights =
+      List.map2 (,) lefts rights
+    contrib = countContributions model
+    percent vl = List.map (\z -> 
+      let 
+        p = (z * 100) // contrib
+      in 
+        if p > 10 then p - (p%10)
+        else p
+      ) vl 
+    filtered = filter (\z -> z > 5) (percent vals)
+    summed = drop (length filtered) vals |> sum |> (\z -> (z * 100) // contrib)
+    combined =
+        filtered ++ [summed |> (\p -> if p > 10 then (round p) - ( (round p) % 10 ) else round p)]
+    newVals = (take ((length combined) - 1) vals) ++ [summed]
+    --model has to be SORTED!
+    newLabels = (take ((length combined) - 1) labels) ++ ["Others"]
+  in
+    div []
+    [ text (toString newVals)
+    , text (toString combined)
+    , div [ class "contentContainer" ]
+      (List.map2 htmlBars combined (pairs newVals newLabels))
+    ]
+
+htmlBars :  Int -> ( Int, String ) -> Html Msg
+htmlBars percent (vl, lb) =
+  div [ class "progressBar" ]
+    [ h4 [] [ text lb ]
+    , div [class "progressBarContainer" ]
+      [ div [ class ("progressBarValue value-" ++ (toString percent)) ]
+        []
+      ]
+    ]
 
 --sort model by contributions (potentially by a given attributed)
 sortContrib : Model -> Model
@@ -405,89 +444,87 @@ newString = """
 
 styles : String
 styles = 
-    """dl {
-        display: flex;
-        background-color: white;
-        flex-direction: column;
-        width: 100%;
-        max-width: 700px;
-        position: relative;
+    """.contentContainer {
+        background: #efefef;
         padding: 20px;
-        }
+        max-width: 350px;
+        min-width: 150px;
+        margin: 15vh auto;
+        border-radius: 10px;
+        border: solid 5px #dbdbdb;
+      }
 
-        dt {
-        align-self: flex-start;
+      .progressBar {
+        margin-bottom: 26px;
+        margin-bottom: 1.66em;
+      }
+
+      .progressBar h4 {
+        font-size: 21px;
+        font-size: 1.33em;
+        text-transform: none;
+        font-family: Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        margin-bottom: 7px;
+        margin-bottom: .33em;
+      }
+
+      .progressBarContainer {
         width: 100%;
-        font-weight: 700;
-        display: block;
-        text-align: center;
-        font-size: 1.2em;
-        font-weight: 700;
-        margin-bottom: 20px;
-        margin-left: 130px;
-        }
+        max-width: 350px;
+        height: 26px;
+        height: 1.66em;
+        background: #e6eae3;
+        background: rgba(8,102,220,.2);
+        overflow: hidden;
+        border-radius: 5px;
+      }
 
-        .text {
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        height: 40px;
-        width: 130px;
-        background-color: white;
-        position: absolute;
-        left: 0;
-        justify-content: flex-end;
-        }
+      .progressBarValue {
+        height: 1.66em;
+        float: left;
+        background: #0866dc;
+        background: rgba(8,102,220,.75);
+      }
 
-        .percentage {
-        font-size: .8em;
-        line-height: 1;
-        text-transform: uppercase;
-        width: 100%;
-        height: 40px;
-        margin-left: 130px;
-        background: repeating-linear-gradient(
-        to right,
-        #ddd,
-        #ddd 1px,
-        #fff 1px,
-        #fff 5%
-        );
-        
-        &:after {
-            content: "";
-            display: block;
-            background-color: #3d9970;
-            width: 50px;
-            margin-bottom: 10px;
-            height: 90%;
-            position: relative;
-            top: 50%;
-            transform: translateY(-50%);
-            transition: background-color .3s ease;
-            cursor: pointer;
-        }
-        &:hover,
-        &:focus {
-            &:after {
-            background-color: #aaa; 
-            }
-        }
-        }
+      .value-00 { width: 0; }
 
-        @for $i from 1 through 100 {
-        .percentage-#{$i} {
-            &:after {
-            $value: ($i * 1%);
-            width: $value;
-            }
-        }
-        }
+      .value-1 { width: 1%; }
 
-        html, body {
-        height: 500px;
-        font-family: "fira-sans-2",sans-serif;
-        color: #333;
-        }
+      .value-2 { width: 2%; }
+
+      .value-3 { width: 3%; }
+
+      .value-4 { width: 4%; }
+
+      .value-5 { width: 5%; }
+
+      .value-6 { width: 6%; }
+
+      .value-7 { width: 7%; }
+
+      .value-8 { width: 8%; }
+
+      .value-9 { width: 9%; }
+
+      .value-10 { width: 10%; }
+
+      .value-20 { width: 20%; }
+
+      .value-30 { width: 30%; }
+
+      .value-40 { width: 40%; }
+
+      .value-50 { width: 50%; }
+
+      .value-60 { width: 60%; }
+
+      .value-70 { width: 70%; }
+
+      .value-80 { width: 80%; }
+
+      .value-90 { width: 90%; }
+
+      .value-100 { width: 100%; }
     """
 
