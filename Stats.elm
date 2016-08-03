@@ -1,3 +1,5 @@
+--module Stats exposing (init, update, view, subscriptions)
+
 import Html exposing (..)
 import Html.App as Html
 import Html.Attributes exposing (..)
@@ -9,14 +11,13 @@ import Chart exposing (..)
 import Task exposing (Task)
 import List exposing (..)
 
---?
 
-
-main = Html.program
-        { init = init --model = initialModel
-        , subscriptions = subscriptions
+main =
+    Html.program
+        { init = init
         , update = update
         , view = view
+        , subscriptions = subscriptions
         }
 
 type alias Line = 
@@ -25,9 +26,12 @@ type alias Line =
     , contributions : Int
     }
 
+type State = Bar | Pie | Stat | Empty
+
 type alias Model = 
     --can add more statistics later with the record form
     { stats : List Line
+    , state : State
     }
 
 emptyModel: Model
@@ -37,6 +41,7 @@ emptyModel =
         , contributions = 0
         }
       ]
+  , state = Empty
   }
 
 init : ( Model, Cmd Msg )
@@ -58,21 +63,22 @@ lineDecoder =
         |> Json.Decode.Pipeline.required "country" Json.string
         |> Json.Decode.Pipeline.required "contributions" Json.int
 
-modelDecoder : Json.Decoder Model
+modelDecoder : Json.Decoder (State -> Model)
 modelDecoder = 
     Json.Decode.Pipeline.decode Model
         |> Json.Decode.Pipeline.required "stats" (Json.list lineDecoder)
 
-{- String for now, normally some other type of Json values 
+{-
 Json.Decode.decodeString modelDecoder-}
-decodeModel : String -> Result String Model
+decodeModel : String -> Result String (State -> Model)
 decodeModel modelJson =
     Json.decodeString modelDecoder modelJson
-
+{-
 --use of the Json decoder on Json value (newString) 
 result : Model -> Model
 result model = 
     Result.withDefault model (decodeModel newString)
+-}
 
 {-can't count members from this input?-}
 countCountries : Model -> Int
@@ -88,7 +94,7 @@ getUrl =
   let
     url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json" 
   in
-    Task.perform FetchFail FetchPass (Http.get modelDecoder url)
+    Task.perform FetchFail FetchPass (Http.get decodeUrl url)
     --Task.perform FetchFail FetchPass (Http.fromJson modelDecoder (Http.send Http.defaultSettings request))
 
 decodeUrl =
@@ -103,10 +109,16 @@ decodeLine =
         ("country" := Json.string)
         ("contributions" := Json.int)
 
+--UPDATE
+
 type Msg
     = Display
     | FetchFail Http.Error
-    | FetchPass Model
+    | FetchPass (List Line)
+    | NoOp
+    | BarView
+    | PieView
+    | StatView
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -117,7 +129,7 @@ update msg model =
           )
         
         FetchPass response ->
-          ( response
+          ( { model | stats = response }
           , Cmd.none
           )
         
@@ -125,7 +137,29 @@ update msg model =
           ( model
           , Cmd.none
           )
+
+        NoOp ->
+          ( model
+          , Cmd.none
+          )
           --List.take 10 (sortContrib (result model)).stats
+        
+        BarView ->
+          ( { model | state = Bar }
+          , Cmd.none
+          )
+        
+        PieView ->
+          ( { model | state = Pie }
+          , Cmd.none
+          )
+        
+        StatView ->
+          ( { model | state = Stat }
+          , Cmd.none
+          )
+
+--VIEW
 
 {-
 table : List Attribute -> List Html -> Html
@@ -139,24 +173,47 @@ view model =
   let
     sorted = sortContrib model
   in
-    div []
-    [ h2 [] [text "Summary" ]
+    div [ id "container" ]
+    [ div [ id "menu" ] 
+      [ h2 [] [text "Summary" ]
 --    , table [] [ tr [] (oneRow ["Members", "?"])
 --    , tr [] (oneRow ["Countries and territories", (toString (countCountries model))])
 --    , tr [] (oneRow ["Contributions", (toString (countContributions model))])
 --    ]
-    , table [] (matrix [ ["Members", "?"], ["Countries and territories", (toString (countCountries model))]
-    ,["Contributions", (toString (countContributions model))] ])
-    , h2 [] [text "By country"]
-    , button [onClick Display] [text "Get from Url"]
-    , div []
-      [ node "style" [ type' "text/css" ] [text styles]
-      , moreBars sorted (List.map .contributions sorted.stats) (List.map .country sorted.stats)
+      , table [] (matrix [ ["Members", "?"], ["Countries and territories", (toString (countCountries model))]
+      ,["Contributions", (toString (countContributions model))] ])
+      , h2 [] [text "By country"]
+      , button [onClick Display] [text "Get from Url"]
       ]
-    , bars (List.map .contributions sorted.stats) (List.map .country sorted.stats)
-    , table [] (matrix (newTable sorted))
+    , div [ id "presentation" ]
+      [ button [onClick BarView] [text "Bar view"]
+      , button [onClick PieView] [text "Pie chart view"]
+      , button [onClick StatView] [text "List statistics"]
+      {-, div []
+        [ node "style" [ type' "text/css" ] [text styles]
+        , moreBars sorted (List.map .contributions sorted.stats) (List.map .country sorted.stats)
+        ]
+      , bars (List.map .contributions sorted.stats) (List.map .country sorted.stats)
+      , table [] (matrix (newTable sorted))-}
+      , chartView sorted
+      ]
  -- table [] ((th [] (oneRow ["Country", "Contributions"])) :: (matrix (newTable (sortContrib model) )))
     ]
+
+chartView : Model -> Html Msg
+chartView model = 
+  if model.state == Pie then
+      bars (List.map .contributions model.stats) (List.map .country model.stats)
+    --model = sorted
+  else if model.state == Bar then
+      div []
+        [ node "style" [ type' "text/css" ] [text styles]
+        , moreBars model (List.map .contributions model.stats) (List.map .country model.stats)
+        ]
+  else if model.state == Stat then
+      table [] (matrix (newTable model))
+  else div [] []
+
 
 bars : List Int -> List String -> Html Msg
 bars vals labels =
@@ -172,25 +229,17 @@ moreBars model vals labels =
     pairs lefts rights =
       List.map2 (,) lefts rights
     contrib = countContributions model
-    percent vl = List.map (\z -> 
-      let 
-        p = (z * 100) // contrib
-      in 
-        if p > 10 then p - (p%10)
-        else p
-      ) vl 
+    percent vl = List.map (\z -> (z * 100) // contrib) vl 
     filtered = filter (\z -> z > 5) (percent vals)
     summed = drop (length filtered) vals |> sum |> (\z -> (z * 100) // contrib)
     combined =
-        filtered ++ [summed |> (\p -> if p > 10 then (round p) - ( (round p) % 10 ) else round p)]
+        filtered ++ [summed]
     newVals = (take ((length combined) - 1) vals) ++ [summed]
     --model has to be SORTED!
     newLabels = (take ((length combined) - 1) labels) ++ ["Others"]
   in
     div []
-    [ text (toString newVals)
-    , text (toString combined)
-    , div [ class "contentContainer" ]
+    [ div [ class "contentContainer" ]
       (List.map2 htmlBars combined (pairs newVals newLabels))
     ]
 
@@ -199,7 +248,7 @@ htmlBars percent (vl, lb) =
   div [ class "progressBar" ]
     [ h4 [] [ text lb ]
     , div [class "progressBarContainer" ]
-      [ div [ class ("progressBarValue value-" ++ (toString percent)) ]
+      [ div [ class "progressBarValue", style [ ("width", (toString percent) ++ "%") ] ]
         []
       ]
     ]
@@ -228,10 +277,16 @@ matrix values =
 --countries : Model -> List String
 --countries {stats} = List.map .country stats
 
+--SUBSCRIPTIONS
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
-    
+
+
+
+
+--String and Styles    
 name : String
 name = """
     {
@@ -444,7 +499,9 @@ newString = """
 
 styles : String
 styles = 
-    """.contentContainer {
+    """#container { display: flex; }
+      
+      .contentContainer {
         background: #efefef;
         padding: 20px;
         max-width: 350px;
@@ -486,45 +543,5 @@ styles =
         background: #0866dc;
         background: rgba(8,102,220,.75);
       }
-
-      .value-00 { width: 0; }
-
-      .value-1 { width: 1%; }
-
-      .value-2 { width: 2%; }
-
-      .value-3 { width: 3%; }
-
-      .value-4 { width: 4%; }
-
-      .value-5 { width: 5%; }
-
-      .value-6 { width: 6%; }
-
-      .value-7 { width: 7%; }
-
-      .value-8 { width: 8%; }
-
-      .value-9 { width: 9%; }
-
-      .value-10 { width: 10%; }
-
-      .value-20 { width: 20%; }
-
-      .value-30 { width: 30%; }
-
-      .value-40 { width: 40%; }
-
-      .value-50 { width: 50%; }
-
-      .value-60 { width: 60%; }
-
-      .value-70 { width: 70%; }
-
-      .value-80 { width: 80%; }
-
-      .value-90 { width: 90%; }
-
-      .value-100 { width: 100%; }
     """
 
