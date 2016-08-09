@@ -1,28 +1,18 @@
---module Stats exposing (init, update, view, subscriptions)
+module Stats exposing (Model, Msg, init, update, view, subscriptions)
 
 import Html exposing (..)
-import Html.App as Html
+--import Html.App as Html
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Json.Decode as Json exposing ((:=))
-import Json.Decode.Pipeline exposing (decode, required)
+--import Json.Decode.Pipeline exposing (decode, required)
 import Http
 import Chart exposing (..)
 import Task exposing (Task)
 import List exposing (..)
 
-
-main =
-    Html.program
-        { init = init
-        , update = update
-        , view = view
-        , subscriptions = subscriptions
-        }
-
 type alias Line = 
     { country : String
-    --should contributions be modelled as Int?
     , contributions : Int
     }
 
@@ -32,6 +22,7 @@ type alias Model =
     --can add more statistics later with the record form
     { stats : List Line
     , state : State
+    , url : String
     }
 
 emptyModel: Model
@@ -42,68 +33,45 @@ emptyModel =
         }
       ]
   , state = Empty
+  , url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json"
   }
 
 init : ( Model, Cmd Msg )
 init =
   ( --sortContrib (result emptyModel)
   emptyModel
-  , Cmd.none
+  , getUrl emptyModel.url
   )
 
-{-
-decodeModel : Json.Decode.Value -> Result String Model
-decodeModel modelJson =
-    Json.Decode.decodeValue modelDecoder modelJson
--}
-
-lineDecoder : Json.Decoder Line
-lineDecoder = 
-    Json.Decode.Pipeline.decode Line
-        |> Json.Decode.Pipeline.required "country" Json.string
-        |> Json.Decode.Pipeline.required "contributions" Json.int
-
-modelDecoder : Json.Decoder (State -> Model)
-modelDecoder = 
-    Json.Decode.Pipeline.decode Model
-        |> Json.Decode.Pipeline.required "stats" (Json.list lineDecoder)
-
-{-
-Json.Decode.decodeString modelDecoder-}
-decodeModel : String -> Result String (State -> Model)
-decodeModel modelJson =
-    Json.decodeString modelDecoder modelJson
-{-
---use of the Json decoder on Json value (newString) 
-result : Model -> Model
-result model = 
-    Result.withDefault model (decodeModel newString)
--}
-
 {-can't count members from this input?-}
-countCountries : Model -> Int
-countCountries model =
-    List.length model.stats
+countCountries : Model -> (Model -> List Line) -> Int
+countCountries model stats =
+    List.length (stats model)
 
 countContributions : Model -> Int
 countContributions model = 
     List.map .contributions model.stats |> List.sum
 
-getUrl : Cmd Msg
-getUrl =
-  let
-    url = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json" 
-  in
+url2 : String
+url2 = "https://knowledge-gateway.org/?1nf8xwvd"
+
+url1 : String
+url1 = "https://knowledge-gateway.org/file2.axd/e1894e44-7d5c-4035-899a-a32c23f119c6/sample_contribution_stats.json"
+
+getUrl : String -> Cmd Msg
+getUrl url =
     Task.perform FetchFail FetchPass (Http.get decodeUrl url)
     --Task.perform FetchFail FetchPass (Http.fromJson modelDecoder (Http.send Http.defaultSettings request))
 
+decodeUrl : Json.Decoder (List Line)
 decodeUrl =
     Json.at [ "stats" ] decodeList
 
-
+decodeList : Json.Decoder (List Line)
 decodeList =
     Json.list decodeLine
 
+decodeLine : Json.Decoder Line
 decodeLine =
     Json.object2 Line
         ("country" := Json.string)
@@ -112,8 +80,7 @@ decodeLine =
 --UPDATE
 
 type Msg
-    = Display
-    | FetchFail Http.Error
+    = FetchFail Http.Error
     | FetchPass (List Line)
     | NoOp
     | BarView
@@ -123,11 +90,6 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Display ->
-          ( model
-          , getUrl
-          )
-        
         FetchPass response ->
           ( { model | stats = response }
           , Cmd.none
@@ -180,10 +142,9 @@ view model =
 --    , tr [] (oneRow ["Countries and territories", (toString (countCountries model))])
 --    , tr [] (oneRow ["Contributions", (toString (countContributions model))])
 --    ]
-      , table [] (matrix [ ["Members", "?"], ["Countries and territories", (toString (countCountries model))]
+      , table [] (matrix [ ["Members", "?"], ["Countries and territories", (toString (countCountries model .stats))]
       ,["Contributions", (toString (countContributions model))] ])
       , h2 [] [text "By country"]
-      , button [onClick Display] [text "Get from Url"]
       ]
     , div [ id "presentation" ]
       [ button [onClick BarView] [text "Bar view"]
@@ -202,17 +163,14 @@ view model =
 
 chartView : Model -> Html Msg
 chartView model = 
-  if model.state == Pie then
-      bars (List.map .contributions model.stats) (List.map .country model.stats)
-    --model = sorted
-  else if model.state == Bar then
-      div []
+  case model.state of 
+    Pie -> bars (List.map .contributions model.stats) (List.map .country model.stats)
+    Bar -> div []
         [ node "style" [ type' "text/css" ] [text styles]
         , moreBars model (List.map .contributions model.stats) (List.map .country model.stats)
         ]
-  else if model.state == Stat then
-      table [] (matrix (newTable model))
-  else div [] []
+    Stat -> table [] (matrix (newTable model))
+    Empty -> div [] []
 
 
 bars : List Int -> List String -> Html Msg
