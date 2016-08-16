@@ -30,7 +30,7 @@ emptyModel =
 
 decodeUrl : Json.Decoder (List Line)
 decodeUrl =
-    Json.at [ "stats" ] decodeList
+    Json.at [ "downloads" ] decodeList
 
 decodeList : Json.Decoder (List Line)
 decodeList =
